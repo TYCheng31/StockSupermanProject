@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "/home/kevin/MyWebApiProject/MyWebApiProject.csproj": {}
+    "/home/kevin/Desktop/MyWebApiServer/MyWebApiProject.csproj": {}
   },
   "projects": {
-    "/home/kevin/MyWebApiProject/MyWebApiProject.csproj": {
+    "/home/kevin/Desktop/MyWebApiServer/MyWebApiProject.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "/home/kevin/MyWebApiProject/MyWebApiProject.csproj",
+        "projectUniqueName": "/home/kevin/Desktop/MyWebApiServer/MyWebApiProject.csproj",
         "projectName": "MyWebApiProject",
-        "projectPath": "/home/kevin/MyWebApiProject/MyWebApiProject.csproj",
+        "projectPath": "/home/kevin/Desktop/MyWebApiServer/MyWebApiProject.csproj",
         "packagesPath": "/home/kevin/.nuget/packages/",
-        "outputPath": "/home/kevin/MyWebApiProject/obj/",
+        "outputPath": "/home/kevin/Desktop/MyWebApiServer/obj/",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "/home/kevin/.nuget/NuGet/NuGet.Config"
@@ -41,6 +41,10 @@
             "Microsoft.AspNetCore.OpenApi": {
               "target": "Package",
               "version": "[8.0.19, )"
+            },
+            "Newtonsoft.Json": {
+              "target": "Package",
+              "version": "[13.0.3, )"
             },
             "Swashbuckle.AspNetCore": {
               "target": "Package",
