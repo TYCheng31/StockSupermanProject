@@ -5,6 +5,8 @@ using System.Net;
 
 using Microsoft.EntityFrameworkCore;
 using LineBotDemo.Data;
+using LineBotDemo.Services;  // 引入服務層
+
 // ↓ 新增：命名慣例套件（UseSnakeCaseNamingConvention）
 using EFCore.NamingConventions;
 
@@ -26,6 +28,9 @@ builder.Services.AddDbContext<AppDbContext>(options =>
         .UseNpgsql(builder.Configuration.GetConnectionString("Pg"))
         .UseSnakeCaseNamingConvention() // ← 讓 EF 自動對應到 app_users / user_stocks
 );
+
+// 註冊 LineBotService 服務
+builder.Services.AddScoped<ILineBotService, LineBotService>();
 
 // 綁定 0.0.0.0:5077
 builder.WebHost.ConfigureKestrel(options =>
@@ -49,10 +54,10 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// app.UseHttpsRedirection();
-// app.UseAuthorization();
-
+// 啟用 MVC 控制器路由
 app.MapControllers();
+
+// 簡單的健康檢查路由
 app.MapGet("/", () => "UP");
 
 app.Run();
