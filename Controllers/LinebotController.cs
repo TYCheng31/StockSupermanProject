@@ -1,14 +1,13 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Net.Http;
 
-// ★ 新增：EF Core / DbContext / Models
-using Microsoft.EntityFrameworkCore;
-using LineBotDemo.Data;
-using LineBotDemo.Models;
+using LineBotDemo.Data;    // AppDbContext
+using LineBotDemo.Models;  // AppUser
 
 namespace LineBotDemo.Controllers
 {
@@ -18,17 +17,17 @@ namespace LineBotDemo.Controllers
     {
         private readonly IConfiguration _config;
         private readonly IHttpClientFactory _httpClientFactory;
-        private readonly AppDbContext _db; // ★ 新增
+        private readonly AppDbContext _db;
 
         public LineBotController(
             IConfiguration config,
             IHttpClientFactory httpClientFactory,
-            AppDbContext db // ★ 新增
+            AppDbContext db
         )
         {
             _config = config;
             _httpClientFactory = httpClientFactory;
-            _db = db; // ★ 新增
+            _db = db;
         }
 
         // 給 LINE 後台 Verify 用
@@ -38,7 +37,9 @@ namespace LineBotDemo.Controllers
         [HttpPost]
         public async Task<IActionResult> Post()
         {
+            // 讀取 request body
             using var reader = new StreamReader(Request.Body, Encoding.UTF8);
+            //Console.WriteLine(reader);
             var body = await reader.ReadToEndAsync();
             Console.WriteLine($"[Webhook Body] {body}");
 
@@ -66,12 +67,13 @@ namespace LineBotDemo.Controllers
             foreach (var ev in events.EnumerateArray())
             {
                 var type = ev.GetProperty("type").GetString();
+
                 // 取 userId（單聊情境）
                 string? userId = null;
                 if (ev.TryGetProperty("source", out var source) && source.TryGetProperty("userId", out var uidProp))
                     userId = uidProp.GetString();
 
-                // ★★ 1) 使用者封鎖/刪除 → unfollow：把 is_active=false
+                // 1) 使用者封鎖 → is_active=false
                 if (type == "unfollow" && !string.IsNullOrEmpty(userId))
                 {
                     var u = await _db.AppUsers.SingleOrDefaultAsync(x => x.LineUserId == userId);
@@ -85,25 +87,20 @@ namespace LineBotDemo.Controllers
                     continue;
                 }
 
-                // ★★ 2) 使用者加好友 → follow：Upsert 使用者並 is_active=true
+                // 2) 使用者加好友 → Upsert 使用者並 is_active=true
                 if (type == "follow" && !string.IsNullOrEmpty(userId))
                 {
-                    string? displayName = null, pictureUrl = null, statusMessage = null;
+                    string? displayName = null;
 
-                    // 取 LINE Profile（可選，但建議）
+                    // 拉 LINE Profile（可選）
                     var preq = new HttpRequestMessage(HttpMethod.Get, $"https://api.line.me/v2/bot/profile/{userId}");
-
-                    Console.WriteLine($"LINE INFORMATION:{preq}");
-
                     preq.Headers.Add("Authorization", $"Bearer {accessToken}");
                     var presp = await http.SendAsync(preq);
                     if (presp.IsSuccessStatusCode)
                     {
                         using var pdoc = JsonDocument.Parse(await presp.Content.ReadAsStringAsync());
                         var root = pdoc.RootElement;
-                        displayName   = root.GetProperty("displayName").GetString();
-                        pictureUrl    = root.TryGetProperty("pictureUrl", out var pu) ? pu.GetString() : null;
-                        statusMessage = root.TryGetProperty("statusMessage", out var sm) ? sm.GetString() : null;
+                        displayName = root.GetProperty("displayName").GetString();
                     }
 
                     var user = await _db.AppUsers.SingleOrDefaultAsync(x => x.LineUserId == userId);
@@ -113,9 +110,8 @@ namespace LineBotDemo.Controllers
                         {
                             LineUserId = userId,
                             DisplayName = displayName,
-                            PictureUrl = pictureUrl,
-                            StatusMessage = statusMessage,
                             IsActive = true,
+                            ReplyCount = 0,            // 新用戶從 0 開始
                             CreatedAt = DateTime.UtcNow,
                             UpdatedAt = DateTime.UtcNow
                         });
@@ -123,11 +119,10 @@ namespace LineBotDemo.Controllers
                     else
                     {
                         user.DisplayName = displayName ?? user.DisplayName;
-                        user.PictureUrl = pictureUrl ?? user.PictureUrl;
-                        user.StatusMessage = statusMessage ?? user.StatusMessage;
                         user.IsActive = true;
                         user.UpdatedAt = DateTime.UtcNow;
                     }
+
                     await _db.SaveChangesAsync();
                     Console.WriteLine($"[FOLLOW] Upsert {userId} → is_active=true");
 
@@ -149,7 +144,7 @@ namespace LineBotDemo.Controllers
                     continue;
                 }
 
-                // ★★ 3) 文字訊息：沿用你原本的四碼查價（保持不變）
+                // 3) 文字訊息：四碼查價 & 回覆後 +1
                 if (type == "message" &&
                     ev.GetProperty("message").GetProperty("type").GetString() == "text")
                 {
@@ -184,6 +179,7 @@ namespace LineBotDemo.Controllers
                         replyText = "哈囉，我是你的股票小幫手 📈";
                     }
 
+                    // 回覆文字
                     var payload = new
                     {
                         replyToken,
@@ -195,6 +191,16 @@ namespace LineBotDemo.Controllers
                     req.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
                     var resp = await http.SendAsync(req);
                     Console.WriteLine($"[ReplyAPI] {resp.StatusCode}");
+
+                    // ✅ 回覆成功 → 該使用者 reply_count +1
+                    if (resp.IsSuccessStatusCode && !string.IsNullOrEmpty(userId))
+                    {
+                        await _db.AppUsers
+                            .Where(u => u.LineUserId == userId)
+                            .ExecuteUpdateAsync(s => s
+                                .SetProperty(u => u.ReplyCount, u => u.ReplyCount + 1)
+                                .SetProperty(u => u.UpdatedAt,  _ => DateTime.UtcNow));
+                    }
                 }
             }
 
