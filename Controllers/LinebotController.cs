@@ -5,6 +5,11 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Net.Http;
 
+// ★ 新增：EF Core / DbContext / Models
+using Microsoft.EntityFrameworkCore;
+using LineBotDemo.Data;
+using LineBotDemo.Models;
+
 namespace LineBotDemo.Controllers
 {
     [ApiController]
@@ -13,11 +18,17 @@ namespace LineBotDemo.Controllers
     {
         private readonly IConfiguration _config;
         private readonly IHttpClientFactory _httpClientFactory;
+        private readonly AppDbContext _db; // ★ 新增
 
-        public LineBotController(IConfiguration config, IHttpClientFactory httpClientFactory)
+        public LineBotController(
+            IConfiguration config,
+            IHttpClientFactory httpClientFactory,
+            AppDbContext db // ★ 新增
+        )
         {
             _config = config;
             _httpClientFactory = httpClientFactory;
+            _db = db; // ★ 新增
         }
 
         // 給 LINE 後台 Verify 用
@@ -31,6 +42,7 @@ namespace LineBotDemo.Controllers
             var body = await reader.ReadToEndAsync();
             Console.WriteLine($"[Webhook Body] {body}");
 
+            // 驗簽
             var signatureHeader = Request.Headers["x-line-signature"].ToString();
             var channelSecret = _config["Line:ChannelSecret"] ?? string.Empty;
             if (string.IsNullOrEmpty(signatureHeader) || string.IsNullOrEmpty(channelSecret))
@@ -53,20 +65,101 @@ namespace LineBotDemo.Controllers
 
             foreach (var ev in events.EnumerateArray())
             {
-                if (ev.GetProperty("type").GetString() == "message" &&
+                var type = ev.GetProperty("type").GetString();
+                // 取 userId（單聊情境）
+                string? userId = null;
+                if (ev.TryGetProperty("source", out var source) && source.TryGetProperty("userId", out var uidProp))
+                    userId = uidProp.GetString();
+
+                // ★★ 1) 使用者封鎖/刪除 → unfollow：把 is_active=false
+                if (type == "unfollow" && !string.IsNullOrEmpty(userId))
+                {
+                    var u = await _db.AppUsers.SingleOrDefaultAsync(x => x.LineUserId == userId);
+                    if (u != null)
+                    {
+                        u.IsActive = false;
+                        u.UpdatedAt = DateTime.UtcNow;
+                        await _db.SaveChangesAsync();
+                        Console.WriteLine($"[UNFOLLOW] {userId} → is_active=false");
+                    }
+                    continue;
+                }
+
+                // ★★ 2) 使用者加好友 → follow：Upsert 使用者並 is_active=true
+                if (type == "follow" && !string.IsNullOrEmpty(userId))
+                {
+                    string? displayName = null, pictureUrl = null, statusMessage = null;
+
+                    // 取 LINE Profile（可選，但建議）
+                    var preq = new HttpRequestMessage(HttpMethod.Get, $"https://api.line.me/v2/bot/profile/{userId}");
+
+                    Console.WriteLine($"LINE INFORMATION:{preq}");
+
+                    preq.Headers.Add("Authorization", $"Bearer {accessToken}");
+                    var presp = await http.SendAsync(preq);
+                    if (presp.IsSuccessStatusCode)
+                    {
+                        using var pdoc = JsonDocument.Parse(await presp.Content.ReadAsStringAsync());
+                        var root = pdoc.RootElement;
+                        displayName   = root.GetProperty("displayName").GetString();
+                        pictureUrl    = root.TryGetProperty("pictureUrl", out var pu) ? pu.GetString() : null;
+                        statusMessage = root.TryGetProperty("statusMessage", out var sm) ? sm.GetString() : null;
+                    }
+
+                    var user = await _db.AppUsers.SingleOrDefaultAsync(x => x.LineUserId == userId);
+                    if (user == null)
+                    {
+                        _db.AppUsers.Add(new AppUser
+                        {
+                            LineUserId = userId,
+                            DisplayName = displayName,
+                            PictureUrl = pictureUrl,
+                            StatusMessage = statusMessage,
+                            IsActive = true,
+                            CreatedAt = DateTime.UtcNow,
+                            UpdatedAt = DateTime.UtcNow
+                        });
+                    }
+                    else
+                    {
+                        user.DisplayName = displayName ?? user.DisplayName;
+                        user.PictureUrl = pictureUrl ?? user.PictureUrl;
+                        user.StatusMessage = statusMessage ?? user.StatusMessage;
+                        user.IsActive = true;
+                        user.UpdatedAt = DateTime.UtcNow;
+                    }
+                    await _db.SaveChangesAsync();
+                    Console.WriteLine($"[FOLLOW] Upsert {userId} → is_active=true");
+
+                    // 回覆歡迎訊息（可選）
+                    if (ev.TryGetProperty("replyToken", out var rt))
+                    {
+                        var payloadWelcome = new
+                        {
+                            replyToken = rt.GetString(),
+                            messages = new object[] {
+                                new { type = "text", text = $"歡迎加入！{displayName ?? ""}\n輸入四碼股票代號（例：2330）可查價。" }
+                            }
+                        };
+                        var reqWelcome = new HttpRequestMessage(HttpMethod.Post, "https://api.line.me/v2/bot/message/reply");
+                        reqWelcome.Headers.Add("Authorization", $"Bearer {accessToken}");
+                        reqWelcome.Content = new StringContent(JsonSerializer.Serialize(payloadWelcome), Encoding.UTF8, "application/json");
+                        await http.SendAsync(reqWelcome);
+                    }
+                    continue;
+                }
+
+                // ★★ 3) 文字訊息：沿用你原本的四碼查價（保持不變）
+                if (type == "message" &&
                     ev.GetProperty("message").GetProperty("type").GetString() == "text")
                 {
                     var replyToken = ev.GetProperty("replyToken").GetString();
                     var userText = ev.GetProperty("message").GetProperty("text").GetString() ?? "";
 
-                    // 檢查是否為四位數字
-                    string replyText = "";
+                    string replyText;
                     if (Regex.IsMatch(userText, @"^\d{4}$"))
                     {
-                        // 使用者輸入的四位數字
                         var stockCode = userText;
-
-                        // 呼叫股票資訊 API 並傳送四位數字
                         var apiUrl = $"http://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse_{stockCode}.tw";
                         var response = await http.GetAsync(apiUrl);
 
@@ -75,28 +168,11 @@ namespace LineBotDemo.Controllers
                             var jsonResponse = await response.Content.ReadAsStringAsync();
                             using var jsonDoc = JsonDocument.Parse(jsonResponse);
 
-                            //TERMINAL print information of the stock
-                            //Console.WriteLine($"{jsonDoc.RootElement.ToString()}");
+                            var nf = jsonDoc.RootElement.GetProperty("msgArray")[0].GetProperty("nf").GetString() ?? "無法取得 'nf' 資料";
+                            var at = jsonDoc.RootElement.GetProperty("msgArray")[0].GetProperty("@").GetString() ?? "無法取得 '@' 資料";
+                            var z  = jsonDoc.RootElement.GetProperty("msgArray")[0].GetProperty("z").GetString() ?? "無法取得 'z' 資料";
 
-                            //
-                            var nf = jsonDoc.RootElement
-                                .GetProperty("msgArray")[0]
-                                .GetProperty("nf")
-                                .GetString() ?? "無法取得 'nf' 資料";
-                            
-                            var at = jsonDoc.RootElement
-                                .GetProperty("msgArray")[0]
-                                .GetProperty("@")
-                                .GetString() ?? "無法取得 '@' 資料";
-                            
-                            var oa = jsonDoc.RootElement
-                                .GetProperty("msgArray")[0]
-                                .GetProperty("oa")
-                                .GetString() ?? "無法取得 'oa' 資料";
-
-                            replyText = $"{nf}\n{at}\n{oa}";
-
-                            //replyText = "成功獲得股票資訊";
+                            replyText = $"{nf}\n{at}\n{z}";
                         }
                         else
                         {
@@ -105,15 +181,13 @@ namespace LineBotDemo.Controllers
                     }
                     else
                     {
-                        replyText = "哈囉，我是你的股票小幫手 📈"; // 不是四位數字，回傳原本的字
+                        replyText = "哈囉，我是你的股票小幫手 📈";
                     }
 
                     var payload = new
                     {
                         replyToken,
-                        messages = new object[] {
-                            new { type = "text", text = replyText }
-                        }
+                        messages = new object[] { new { type = "text", text = replyText } }
                     };
 
                     var req = new HttpRequestMessage(HttpMethod.Post, "https://api.line.me/v2/bot/message/reply");
@@ -123,6 +197,7 @@ namespace LineBotDemo.Controllers
                     Console.WriteLine($"[ReplyAPI] {resp.StatusCode}");
                 }
             }
+
             return Ok();
         }
     }

@@ -66,3 +66,17 @@ ch: 股票代碼（2449.tw）。
 tlong: 一個長整數時間戳記，可能代表該資料的時間點。
 
 ot: 是交易時間，這裡顯示了時間更新點的時間。
+
+
+
+namespace LineBotDemo.Models
+{
+    public class LineUser
+    {
+        public long Id { get; set; }
+        public string? LineUserId { get; set; } 
+        public string? DisplayName { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public int MessageCount { get; set; }
+    }
+}
