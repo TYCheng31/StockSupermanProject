@@ -124,15 +124,16 @@ namespace LineBotDemo.Services
         //使用者加入庫存:   加入庫存:2330
         //查詢我的庫存:     我的庫存
         //使用者刪除庫存:   刪除庫存:2330
+        //AI建議:         AI2330
         //=================================================================================================
         public async Task HandleMessageAsync(JsonElement ev)
-        {
-            var replyToken = ev.GetProperty("replyToken").GetString();
-            var userText = ev.GetProperty("message").GetProperty("text").GetString() ?? "";
+        {
+            var replyToken = ev.GetProperty("replyToken").GetString();
+            var userText = ev.GetProperty("message").GetProperty("text").GetString() ?? "";
 
-            string replyText;
+            string replyText;
 
-            Console.WriteLine($"[DEBUG] userText: {userText}"); // 確認輸入的訊息是否正確
+            Console.WriteLine($"[DEBUG] userText: {userText}"); // 確認輸入的訊息是否正確
 
             //=================================================================================================
             //INPUT:    2330(股票代號)
@@ -192,9 +193,9 @@ namespace LineBotDemo.Services
 
                             for (int i = 0; i < 5; i++)
                             {
-                                string buyerPrice = double.Parse(buyerValues[i]).ToString("0.00");  
-                                string sellerPrice = double.Parse(sellerValues[i]).ToString("0.00");  
-                                text += $"{sellerPrice,0} {sellerVolumes[i],5} | {buyerPrice,0} {buyerVolumes[i],5}\n"; 
+                                string buyerPrice = double.Parse(buyerValues[i]).ToString("0.00");
+                                string sellerPrice = double.Parse(sellerValues[i]).ToString("0.00");
+                                text += $"{sellerPrice,0} {sellerVolumes[i],5} | {buyerPrice,0} {buyerVolumes[i],5}\n";
                             }
                         }
                     }
@@ -216,7 +217,7 @@ namespace LineBotDemo.Services
             //RETURN:   回傳成功加入資訊
             //=================================================================================================
             else if (userText.StartsWith("加入庫存：") || userText.StartsWith("加入庫存:"))
-            {
+            {
                 // 這裡處理中文冒號或英文冒號情況
                 userText = userText.Replace("：", ":");  // 把中文冒號替換為英文冒號
 
@@ -225,107 +226,123 @@ namespace LineBotDemo.Services
 
                 if (Regex.IsMatch(stockCode, @"^\d{4,}$")) // 確保股票代號是四位或更多數字
                 {
-                    replyText = await HandleAddStockAsync(ev, stockCode); // 處理加入庫存邏輯
+                    replyText = await HandleAddStockAsync(ev, stockCode); // 處理加入庫存邏輯
                 }
-                else
-                {
-                    replyText = "股票代號必須是四位或更多數字，請重新輸入。";
-                }
-            }
+                else
+                {
+                    replyText = "股票代號必須是四位或更多數字，請重新輸入。";
+                }
+            }
 
             //=================================================================================================
             //INPUT:    我的庫存
             //RETURN:   該使用者曾經加入的庫存
             //=================================================================================================
             else if (userText == "我的庫存")
-            {
+            {
                 // 處理用戶查詢庫存的邏輯
                 var userId = ev.GetProperty("source").GetProperty("userId").GetString();
-                if (string.IsNullOrEmpty(userId))
-                {
-                    replyText = "無法識別您的帳號，請再試一次。";
-                }
-                else
-                {
+                if (string.IsNullOrEmpty(userId))
+                {
+                    replyText = "無法識別您的帳號，請再試一次。";
+                }
+                else
+                {
                     // 查詢用戶庫存
                     var user = await _db.AppUsers.SingleOrDefaultAsync(u => u.LineUserId == userId);
-                    if (user != null)
-                    {
+                    if (user != null)
+                    {
                         // 查找該用戶的所有股票
                         var userStocks = await _db.UserStocks
-                            .Where(us => us.UserId == user.Id)
-                            .Select(us => us.StockCode)
-                            .ToListAsync(); // 提取為列表後，再進行排序
+              .Where(us => us.UserId == user.Id)
+              .Select(us => us.StockCode)
+              .ToListAsync(); // 提取為列表後，再進行排序
 
                         // 在客戶端進行數字排序
                         var sortedStocks = userStocks
-                            .OrderBy(stockCode => int.TryParse(stockCode, out int result) ? result : int.MaxValue) // 確保數字排序，無效的股票代號排在最後
+              .OrderBy(stockCode => int.TryParse(stockCode, out int result) ? result : int.MaxValue) // 確保數字排序，無效的股票代號排在最後
                             .ToList();
 
-                        if (sortedStocks.Any())
-                        {
+                        if (sortedStocks.Any())
+                        {
                             // 如果有股票，回傳庫存
                             replyText = $"您的庫存有以下股票代號：\n{string.Join("\n", sortedStocks)}";
-                        }
-                        else
-                        {
+                        }
+                        else
+                        {
                             // 如果沒有股票
                             replyText = "您的庫存目前沒有任何股票。";
-                        }
-                    }
-                    else
-                    {
-                        replyText = "無法找到您的帳號，請再試一次。";
-                    }
-                }
-            }
+                        }
+                    }
+                    else
+                    {
+                        replyText = "無法找到您的帳號，請再試一次。";
+                    }
+                }
+            }
 
             //=================================================================================================
             //INPUT:    刪除庫存:2330
             //RETURN:   回傳刪除結果
             //=================================================================================================
             else if (userText.StartsWith("刪除庫存：") || userText.StartsWith("刪除庫存:"))
-            {
+            {
                 // 處理刪除庫存的邏輯
                 userText = userText.Replace("：", ":");  // 替換中文冒號為英文冒號
                 var stockCode = userText.Substring(5).Trim(); // 提取股票代號
                 Console.WriteLine($"[DEBUG] 要刪除的股票代號: {stockCode}");
 
-                if (Regex.IsMatch(stockCode, @"^\d{4,}$")) // 確保股票代號是四位或更多數字
+                if (Regex.IsMatch(stockCode, @"^\d{4,}$")) // 確保股票代號是四位或更多數字
                 {
-                    replyText = await HandleDeleteStockAsync(ev, stockCode); // 處理刪除庫存邏輯
+                    replyText = await HandleDeleteStockAsync(ev, stockCode); // 處理刪除庫存邏輯
                 }
-                else
-                {
-                    replyText = "股票代號必須是四位或更多數字，請重新輸入。";
-                }
-            }
+                else
+                {
+                    replyText = "股票代號必須是四位或更多數字，請重新輸入。";
+                }
+            }
+            //=================================================================================================
+            //INPUT:    AI2330
+            //RETURN:   AI看法
+            //=================================================================================================
+            else if (userText.StartsWith("ai") || userText.StartsWith("ai"))
+            {
+                // 這裡處理中文冒號或英文冒號情況
+                userText = userText.Replace("：", ":");  // 把中文冒號替換為英文冒號
 
+                var stockCode = userText.Substring(2).Trim(); // 提取股票代號
+                Console.WriteLine($"[DEBUG] 提取的股票代號: {stockCode}");  // 確認提取的股票代號
+                var aiRecommendation = await GetAIRecommendation(stockCode);
+
+                // 將AI建議與股票資訊結合
+                replyText = $"\nAI建議: {aiRecommendation}";
+
+            }
             //=================================================================================================
             //INPUT:    其他沒有被指定的prompt
             //RETURN:   哈囉，我是你的股票小幫手 📈
             //=================================================================================================
             else
-            {
-                replyText = "哈囉，我是你的股票小幫手 📈";
-            }
+            {
+                replyText = "哈囉，我是你的股票小幫手 📈";
+            }
 
             // 發送回覆訊息
             await SendReplyMessageAsync(replyToken, new { replyToken, messages = new object[] { new { type = "text", text = replyText } } });
 
             // ✅ 回覆成功 → 該使用者 reply_count +1
             var userIdForCount = ev.GetProperty("source").GetProperty("userId").GetString();
-            if (!string.IsNullOrEmpty(userIdForCount))
-            {
-                var userForCount = await _db.AppUsers.SingleOrDefaultAsync(u => u.LineUserId == userIdForCount);
-                if (userForCount != null)
-                {
-                    userForCount.ReplyCount += 1;
-                    userForCount.UpdatedAt = DateTime.UtcNow;
-                    await _db.SaveChangesAsync();
-                }
-            }
-        }
+            if (!string.IsNullOrEmpty(userIdForCount))
+            {
+                var userForCount = await _db.AppUsers.SingleOrDefaultAsync(u => u.LineUserId == userIdForCount);
+                if (userForCount != null)
+                {
+                    userForCount.ReplyCount += 1;
+                    userForCount.UpdatedAt = DateTime.UtcNow;
+                    await _db.SaveChangesAsync();
+                }
+            }
+        }
 
 
         private async Task<string> HandleAddStockAsync(JsonElement ev, string stockCode)
@@ -376,38 +393,97 @@ namespace LineBotDemo.Services
             await http.SendAsync(req);
         }
 
-        private async Task<string> HandleDeleteStockAsync(JsonElement ev, string stockCode)
-        {
-            var userId = ev.GetProperty("source").GetProperty("userId").GetString();
-            if (string.IsNullOrEmpty(userId))
-            {
-                return "無法識別您的帳號，請再試一次。";
-            }
+        private async Task<string> HandleDeleteStockAsync(JsonElement ev, string stockCode)
+        {
+            var userId = ev.GetProperty("source").GetProperty("userId").GetString();
+            if (string.IsNullOrEmpty(userId))
+            {
+                return "無法識別您的帳號，請再試一次。";
+            }
 
             // 查詢該用戶的股票並刪除
             var user = await _db.AppUsers.SingleOrDefaultAsync(u => u.LineUserId == userId);
-            if (user != null)
-            {
+            if (user != null)
+            {
                 // 查找該用戶擁有的股票
                 var stockToDelete = await _db.UserStocks
-                    .Where(us => us.UserId == user.Id && us.StockCode == stockCode)
-                    .FirstOrDefaultAsync();
+          .Where(us => us.UserId == user.Id && us.StockCode == stockCode)
+          .FirstOrDefaultAsync();
 
-                if (stockToDelete != null)
-                {
-                    _db.UserStocks.Remove(stockToDelete);  // 刪除該股票
+                if (stockToDelete != null)
+                {
+                    _db.UserStocks.Remove(stockToDelete);  // 刪除該股票
                     await _db.SaveChangesAsync();
-                    return $"成功刪除股票 {stockCode} 從您的庫存！";
-                }
-                else
-                {
-                    return $"您的庫存中沒有找到股票 {stockCode}，無法刪除。";
-                }
-            }
-            else
-            {
-                return "無法找到您的帳號，請再試一次。";
-            }
-        }
+                    return $"成功刪除股票 {stockCode} 從您的庫存！";
+                }
+                else
+                {
+                    return $"您的庫存中沒有找到股票 {stockCode}，無法刪除。";
+                }
+            }
+            else
+            {
+                return "無法找到您的帳號，請再試一次。";
+            }
+        }
+        private async Task<string> GetAIRecommendation(string stockCode) 
+        {
+            // Gemini API 的端點
+            var aiApiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+            
+            // 創建 HttpClient
+            var client = _httpClientFactory.CreateClient();
+
+            // 添加 API 金鑰到標頭
+            client.DefaultRequestHeaders.Add("X-goog-api-key", "AIzaSyAsPjAZRMf8tjZCSLuq6LKcIiymnY0CMwU"); // 替換為您的實際 API 金鑰
+
+            // prompt
+            var content = new StringContent($@"{{
+                ""contents"": [
+                    {{
+                        ""parts"": [
+                            {{
+                                ""text"": ""用一位股票分析師的看法，整理該台股近期利多利空的相關新聞，新聞日期要近一個禮拜並且要有日期跟根據 ，最後用一句話總結該股票的好壞{stockCode}""
+                            }}
+                        ]
+                    }}
+                ]
+            }}", Encoding.UTF8, "application/json");
+
+            try 
+            {
+                // 發送 POST 請求
+                var response = await client.PostAsync(aiApiUrl, content);
+                
+                if (response.IsSuccessStatusCode) 
+                {
+                    // 讀取 API 回應
+                    var jsonResponse = await response.Content.ReadAsStringAsync();
+                    Console.WriteLine("AI Response: " + jsonResponse);
+
+                    // 解析 JSON 回應並提取模型生成的內容
+                    using var jsonDoc = JsonDocument.Parse(jsonResponse);
+                    
+                    // 確保 candidates 中有資料並取出第一個項目的內容
+                    var recommendation = jsonDoc.RootElement
+                                                .GetProperty("candidates")[0]
+                                                .GetProperty("content")
+                                                .GetProperty("parts")[0]
+                                                .GetProperty("text")
+                                                .GetString();
+                    
+                    return recommendation ?? "無法提供建議";
+                } 
+                else 
+                {
+                    return "無法從AI獲得建議";
+                }
+            } 
+            catch (Exception ex) 
+            {
+                Console.WriteLine($"[ERROR] AI建議查詢失敗: {ex}");
+                return "無法提供建議";
+            }
+        }
     }
 }
