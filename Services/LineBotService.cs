@@ -138,47 +138,77 @@ namespace LineBotDemo.Services
             //INPUT:    2330(股票代號)
             //RETURN:   API回傳的指定資訊
             //=================================================================================================
-            if (Regex.IsMatch(userText, @"^\d{4,}$"))
-            {
-                var stockCode = userText.Trim();
-                var apiUrl = $"http://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse_{stockCode}.tw";
-                try
-                {
-                    var client = _httpClientFactory.CreateClient();
-                    var response = await client.GetAsync(apiUrl);
+            if (Regex.IsMatch(userText, @"^\d{4,}$"))
+            {
+                var stockCode = userText.Trim();
+                var apiUrl = $"http://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse_{stockCode}.tw";
+                Console.WriteLine("有GET API");
 
-                    string text = "請輸入正確的股票代碼。";
+                try
+                {
+                    var client = _httpClientFactory.CreateClient();
+                    var response = await client.GetAsync(apiUrl);
 
-                    if (response.IsSuccessStatusCode)
-                    {
-                        var jsonResponse = await response.Content.ReadAsStringAsync();
-                        using var jsonDoc = JsonDocument.Parse(jsonResponse);
+                    string text = "請輸入正確的股票代碼。";
 
-                        if (jsonDoc.RootElement.TryGetProperty("msgArray", out var arr) &&
-                            arr.ValueKind == JsonValueKind.Array && arr.GetArrayLength() > 0)
-                        {
-                            var item = arr[0];
-                            var zOk = item.TryGetProperty("z", out var _z) && !string.IsNullOrWhiteSpace(_z.GetString()) && _z.GetString() != "-";
-                            if (zOk)
-                            {
-                                var nf = item.TryGetProperty("nf", out var _nf) ? _nf.GetString() : "（無名稱）";
-                                var at = item.TryGetProperty("@",  out var _at) ? _at.GetString() : stockCode;
-                                var z  = _z.GetString();
-                                text = $"{nf}\n{at}\n{z}";
-                            }
-                        }
-                    }
+                    if (response.IsSuccessStatusCode)
+                    {
+                        Console.WriteLine("有接收到API");
+                        var jsonResponse = await response.Content.ReadAsStringAsync();
+                        Console.WriteLine(jsonResponse);
+                        using var jsonDoc = JsonDocument.Parse(jsonResponse);
 
-                    await SendReplyMessageAsync(replyToken, new { replyToken, messages = new object[] { new { type = "text", text } } });
-                    return; // 當場送完，直接結束
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[ERROR] 查詢失敗: {ex}");
-                    await SendReplyMessageAsync(replyToken, new { replyToken, messages = new object[] { new { type = "text", text = "查詢失敗，請稍後再試。" } } });
-                    return;
-                }
-            }
+                        if (jsonDoc.RootElement.TryGetProperty("msgArray", out var arr) &&
+                            arr.ValueKind == JsonValueKind.Array && arr.GetArrayLength() > 0)
+                        {
+                            var item = arr[0];
+                            var nf = item.TryGetProperty("n", out var _n) ? _n.GetString() : "（無名稱）";
+                            var at = item.TryGetProperty("c", out var _at) ? _at.GetString() : stockCode;
+                            var price = item.TryGetProperty("z", out var _p) ? _p.GetString() : "成交價--";
+                            var volume = item.TryGetProperty("v", out var _v) ? _v.GetString() : "量--";
+
+                            //
+                            var buyer = item.TryGetProperty("a", out var _a) ? _a.GetString() : "買";
+                            var seller = item.TryGetProperty("b", out var _b) ? _b.GetString() : "賣";
+                            var Bvolume = item.TryGetProperty("f", out var _f) ? _f.GetString() : "買量--";
+                            var Svolume = item.TryGetProperty("g", out var _g) ? _g.GetString() : "賣量--";
+                            //
+
+                            var time = item.TryGetProperty("%", out var _t) ? _t.GetString() : "時間--";
+
+
+                            string[] buyerValues = buyer.Split('_', StringSplitOptions.RemoveEmptyEntries);
+                            string[] buyerVolumes = Bvolume.Split('_', StringSplitOptions.RemoveEmptyEntries);
+                            string[] sellerValues = seller.Split('_', StringSplitOptions.RemoveEmptyEntries);
+                            string[] sellerVolumes = Svolume.Split('_', StringSplitOptions.RemoveEmptyEntries);
+
+                            //回傳訊息
+                            text = $"{nf} ({at})\n" +
+                                $"{time}\n\n" +
+                                $"即時價格: {price,13}\n" + //要修改小數問題
+                                $"成交量: {volume,15}\n\n" +
+                                $"五檔:\n";
+
+
+                            for (int i = 0; i < 5; i++)
+                            {
+                                string buyerPrice = double.Parse(buyerValues[i]).ToString("0.00");  
+                                string sellerPrice = double.Parse(sellerValues[i]).ToString("0.00");  
+                                text += $"{sellerPrice,0} {sellerVolumes[i],5} | {buyerPrice,0} {buyerVolumes[i],5}\n"; 
+                            }
+                        }
+                    }
+                    await SendReplyMessageAsync(replyToken, new { replyToken, messages = new object[] { new { type = "text", text } } });
+                    return; // 當場送完，直接結束
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[ERROR] 查詢失敗: {ex}");
+                    await SendReplyMessageAsync(replyToken, new { replyToken, messages = new object[] { new { type = "text", text = "查詢失敗，請稍後再試。" } } });
+                    return;
+                }
+            }
+
 
 
             //=================================================================================================
