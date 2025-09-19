@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using LineBotDemo.Data;    // AppDbContext
 using LineBotDemo.Models;  // AppUser
 using Microsoft.Extensions.Configuration;
+using System.Security.Cryptography.Xml;
 
 namespace LineBotDemo.Services
 {
@@ -168,25 +169,37 @@ namespace LineBotDemo.Services
                             var price = item.TryGetProperty("z", out var _p) ? _p.GetString() : "成交價--";
                             var volume = item.TryGetProperty("v", out var _v) ? _v.GetString() : "量--";
 
-                            //
                             var buyer = item.TryGetProperty("a", out var _a) ? _a.GetString() : "買";
                             var seller = item.TryGetProperty("b", out var _b) ? _b.GetString() : "賣";
                             var Bvolume = item.TryGetProperty("f", out var _f) ? _f.GetString() : "買量--";
                             var Svolume = item.TryGetProperty("g", out var _g) ? _g.GetString() : "賣量--";
-                            //
+                            var closeprice = item.TryGetProperty("y", out var _cp) ? _cp.GetString() : "openprice--";
+                            
+
 
                             var time = item.TryGetProperty("%", out var _t) ? _t.GetString() : "時間--";
 
+
+                            
 
                             string[] buyerValues = buyer.Split('_', StringSplitOptions.RemoveEmptyEntries);
                             string[] buyerVolumes = Bvolume.Split('_', StringSplitOptions.RemoveEmptyEntries);
                             string[] sellerValues = seller.Split('_', StringSplitOptions.RemoveEmptyEntries);
                             string[] sellerVolumes = Svolume.Split('_', StringSplitOptions.RemoveEmptyEntries);
 
+                        
+                            double closepriceValue = double.TryParse(closeprice, out double resultOpenprice2) ? resultOpenprice2 : 0;
+                            
+                            double buyerValue1 = 0;
+                            double.TryParse(price, out buyerValue1);
+
+                            double und = (buyerValue1 - closepriceValue) / closepriceValue * 100;
+                            und = Math.Round(und, 2);
+
                             //回傳訊息
                             text = $"{nf} ({at})\n" +
                                 $"{time}\n\n" +
-                                $"即時價格: {price,13}\n" + //要修改小數問題
+                                $"即時價格: {price} {und}%\n" + //要修改小數問題
                                 $"成交量: {volume,15}\n\n" +
                                 $"五檔:\n";
 
