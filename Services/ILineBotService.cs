@@ -9,5 +9,6 @@ namespace LineBotDemo.Services
         Task HandleUnfollowAsync(string userId);
         Task HandleFollowAsync(System.Text.Json.JsonElement ev, string userId);
         Task HandleMessageAsync(System.Text.Json.JsonElement ev);
+        Task SendTypingAsync(string replyToken);
     }
 }
